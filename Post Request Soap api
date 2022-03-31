@@ -1,0 +1,130 @@
+//test in file main
+
+public List<IdCardReader> convertIdCardInfo() throws IOException, SOAPException, Exception {
+        List<IdCardReader> lstIdcard = new ArrayList();
+        File directory = new File("D:\\Soeun\\process_scanIdCard\\220310_100_id_card_for_test\\");  
+        File failDirectory = new File("D:\\Soeun\\process_scanIdCard\\fail_id_card\\");
+        File fileList[] = directory.listFiles();
+        
+        FileWriter myWriter = new FileWriter("result.txt");
+        FileWriter failWriter = new FileWriter("failDetected.txt");
+        int count = 0;
+        for (File file : fileList) {
+            String encodedFile = null;
+//            DBCommon dbCommon = new DBCommon();
+            
+            try {
+                //check if file is not png jpg and jpeg
+                Pattern pattern = Pattern.compile(Constant.REGEX_PATTERN);
+                Matcher matcher = pattern.matcher(file.getName());
+                if(matcher.matches()){
+                    //convert img to base64
+                    FileInputStream fileInputStreamReader = new FileInputStream(file);
+                    byte[] bytes = new byte[(int)file.length()];
+                    fileInputStreamReader.read(bytes);
+                    encodedFile = new String(Base64.encodeBase64(bytes), "UTF-8");
+		}else{
+                    failWriter.write(file.getName() + "\n" );
+                    if(!failDirectory.exists()){
+                        failDirectory.mkdir();
+                    }
+                    FileUtils.copyFileToDirectory(file, failDirectory);
+                    
+                    continue;
+		}
+
+            }catch (IOException e) {
+                System.out.println(e.getMessage());
+            }
+            
+            //Connect to soap api,send request and get response
+            IdCardReader idCardInfo = checkIdCardInfo(encodedFile);
+            if(idCardInfo.getEnDob() == null){
+                failWriter.write(file.getName() + "\n" );
+                if(!failDirectory.exists()){
+                    failDirectory.mkdir();
+                }
+                FileUtils.copyFileToDirectory(file, failDirectory);
+            } else {
+                myWriter.write(idCardInfo.getIdNumber() + "," 
+                        + idCardInfo.getEnDob() + "," 
+                        + idCardInfo.getEnProvince() + "," 
+                        + idCardInfo.getName() + "," 
+                        + idCardInfo.getEnSex());
+                myWriter.write("\n");    
+                //Save Id Card Info to database
+//                dbCommon.addIdCardInfo(idCardInfo);
+            }
+            count ++;
+            System.out.println("File counted:" + count);
+        }
+        myWriter.close();
+        failWriter.close();
+        
+      return lstIdcard;
+    }
+    
+    ///
+    
+    private IdCardReader checkIdCardInfo(String encodedFile) {
+        IdCardReader idcard = new IdCardReader();
+        try{
+            //Create the connection
+            SOAPConnectionFactory scf = SOAPConnectionFactory.newInstance();
+            SOAPConnection connection = scf.createConnection();
+            SOAPFactory sf = SOAPFactory.newInstance();
+
+            //Create the message
+            MessageFactory mf = MessageFactory.newInstance();
+            SOAPMessage message = mf.createMessage();
+
+            //Create objects for the message parts            
+            SOAPPart soapPart = message.getSOAPPart();
+            SOAPEnvelope envelope = soapPart.getEnvelope();
+            SOAPBody body = envelope.getBody();
+            envelope.addNamespaceDeclaration("ws", "http://ws.bccs.viettel.com/");
+            
+            //Populate the body of the message
+            Name bodyName = sf.createName("idCardReader", "ws", "");
+            SOAPBodyElement bodyElement = body.addBodyElement(bodyName);
+            Name tName = sf.createName("token");
+            Name imgName = sf.createName("image");
+            SOAPElement token = bodyElement.addChildElement(tName);
+            SOAPElement image = bodyElement.addChildElement(imgName);
+            token.addTextNode("12345");
+            image.addTextNode(encodedFile);
+
+            //Display the request sent (Code Sample 1)
+            System.out.println("");
+            System.out.println("SOAP Request Sent:");
+
+            //Set the destination
+            URL endpoint = new URL("http://10.79.120.2:8093/registerInfoSub");
+            //Send the message
+            SOAPMessage response = connection.call(message, endpoint);
+            
+            //Close the connection
+            connection.close();
+            
+            //Display the response received 
+            System.out.println("");
+            System.out.println("SOAP Response Received:");
+
+            //get Value from soap response xml
+            SOAPBody soapBody = response.getSOAPBody();
+            
+            // save to class
+            idcard.setEnDob(soapBody.getElementsByTagName("enDob").item(0).getTextContent());
+            idcard.setEnProvince(soapBody.getElementsByTagName("enProvince").item(0).getTextContent());
+            idcard.setName(soapBody.getElementsByTagName("name").item(1).getTextContent());
+            idcard.setEnSex(soapBody.getElementsByTagName("enSex").item(0).getTextContent());
+            idcard.setIdNumber(soapBody.getElementsByTagName("idNumber").item(0).getTextContent());
+            idcard.setKhDob(soapBody.getElementsByTagName("khDob").item(0).getTextContent());
+            idcard.setKhProvince(soapBody.getElementsByTagName("khProvince").item(0).getTextContent());
+            idcard.setKhSex(soapBody.getElementsByTagName("khSex").item(0).getTextContent());
+            
+        }catch(Exception ex){
+            System.out.println(ex.getMessage());
+        }
+        return idcard;
+    }
